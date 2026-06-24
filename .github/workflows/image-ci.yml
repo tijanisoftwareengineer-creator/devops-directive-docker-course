@@ -1,53 +1,88 @@
-name: image-ci1
+# The display name of the workflow visible in your GitHub Actions UI tab
+name: image-ci
 
+# --- TRIGGERS SECTION ---
+# This defines exactly WHEN GitHub will spin up a machine to run this pipeline
 on:
   push:
+    # Trigger 1: Whenever code is pushed to the 'github-action' branch
     branches:
       - 'github-action'
+    # Trigger 2: Whenever a Git Tag matching the version pattern 'v*' (e.g., v1.0.0, v2.1) is pushed
     tags:
       - 'v*'
 
+# --- WORKER JOBS SECTION ---
 jobs:
   build-tag-push:
+    # Spins up a clean, fresh virtual machine running the latest version of Ubuntu Linux
     runs-on: ubuntu-latest
+    
     steps:
+      # STEP 1: Download your source code repository onto the virtual runner machine
       - name: Checkout
         uses: actions/checkout@v3
 
+      # STEP 2: The Metadata Engine (Generates your Docker tags intelligently)
+      # This step creates a reusable output pool containing 6 distinct tag types
       - name: Docker meta
-        id: meta
+        id: meta # Giving this step an ID allows later steps to reference its generated output tags
         uses: docker/metadata-action@v4
         with:
+          # The base target repository path on Docker Hub where the image will land
           images: |
             sidpalas/devops-directive-docker-course-api-node
+          # Rules for generating image tags dynamically depending on the trigger event:
           tags: |
+            # 1. Hardcodes a static ":latest" tag on every successful build
             type=raw,value=latest
+            # 2. Generates a tag matching the active branch name (e.g., :github-action)
             type=ref,event=branch
+            # 3. Generates a tag matching the PR number if triggered via a Pull Request
             type=ref,event=pr
+            # 4. If you push a tag like v1.2.3, it strips the 'v' and tags it as :1.2.3
             type=semver,pattern={{version}}
+            # 5. Generates a major/minor tag fallback from semver (e.g., :1.2)
             type=semver,pattern={{major}}.{{minor}}
+            # 6. Generates a unique immutable timestamp/git-commit tracking tag (e.g., :20260624-a1b2c3d)
             type=raw,value={{date 'YYYYMMDD'}}-{{sha}}
 
+      # STEP 3: Secure Authentication to Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v2
         with:
+          # Securely pulls decrypted credentials from your GitHub Repository -> Settings -> Secrets -> Actions
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # STEP 4: Build the Image using the Metadata Output
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
+          # Tells Docker exactly which file template blueprint to compile
           file: ./06-building-container-images/api-node/Dockerfile.8
+          # Defines the execution scope/context path where your code dependencies sit
           context: ./05-example-web-application/api-node/
+          # Setting this to true builds the image AND automatically uploads it to Docker Hub in one fluid step
           push: true
+          # References the entire array of tags computed in STEP 2 dynamically
           tags: ${{ steps.meta.outputs.tags }}
 
+      # STEP 5: Automated Security Guardrail (Vulnerability Scanning)
+      # This pulls the freshly built image and inspects its internal Linux binaries for vulnerabilities
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
+          # Target image to scan
           image-ref: 'sidpalas/devops-directive-docker-course-api-node:latest'
+          # Formats the terminal output into a readable ascii table grid
           format: 'table'
+          # CRITICAL DEV-OPS GUARDRAIL: exit-code '1' means if Trivy finds even ONE critical security bug, 
+          # it deliberately crashes this CI workflow step. This stops a dangerous image from passing checks!
           exit-code: '1'
+          # Skip security flaws that the open-source community hasn't released a patch patch/fix for yet
           ignore-unfixed: true
+          # Scan both the baseline operating system layers (OS) and internal application code libraries
           vuln-type: 'os,library'
+          # Only raise an alarm and fail the build if the vulnerability is classified as 'CRITICAL'
           severity: 'CRITICAL'
