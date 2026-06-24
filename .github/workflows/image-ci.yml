@@ -31,7 +31,7 @@ jobs:
         with:
           # The base target repository path on Docker Hub where the image will land
           images: |
-            sidpalas/devops-directive-docker-course-api-node
+            ayoubtanani/devops-directive-docker-course-api-node
           # Rules for generating image tags dynamically depending on the trigger event:
           tags: |
             # 1. Hardcodes a static ":latest" tag on every successful build
